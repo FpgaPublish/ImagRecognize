@@ -199,7 +199,7 @@ always@(posedge i_sys_clk)
 begin
     if(cstate == IDLE) //state IDLE reset
     begin
-        r_sccb_sio_clk <= 1'b0;
+        r_sccb_sio_clk <= 1'b1;
     end
     else if(cstate == PHASE1
         ||  cstate == PHASE2
@@ -228,7 +228,7 @@ begin
     begin
         if(r_clock_cnt < NB_PHASE_CLK - 1)
         begin
-            r_sccb_sio_out <= s_shk_sccb_saddr[NB_PHASE_CLK - 1 - r_clock_cnt];
+            r_sccb_sio_out <= s_shk_sccb_saddr[NB_PHASE_CLK - 2 - r_clock_cnt];
             r_sccb_sio_tri <= 1'b1;
         end
         else 
@@ -241,7 +241,7 @@ begin
     begin
         if(r_clock_cnt < NB_PHASE_CLK - 1)
                 begin
-                    r_sccb_sio_out <= s_shk_sccb_smosi[NB_PHASE_CLK - 1 - r_clock_cnt];
+                    r_sccb_sio_out <= s_shk_sccb_smosi[NB_PHASE_CLK - 2 - r_clock_cnt];
                     r_sccb_sio_tri <= 1'b1;
                 end
                 else 
@@ -259,7 +259,7 @@ begin
     begin
         if(r_clock_cnt < NB_PHASE_CLK - 1)
                 begin
-                    r_sccb_sio_out <= s_shk_sccb_dmosi[NB_PHASE_CLK - 1 - r_clock_cnt];
+                    r_sccb_sio_out <= s_shk_sccb_dmosi[NB_PHASE_CLK - 2 - r_clock_cnt];
                     r_sccb_sio_tri <= 1'b1;
                 end
                 else 
@@ -308,7 +308,16 @@ assign s_shk_sccb_wready = r_shk_sccb_wready;
 
 //========================================================
 //ila and vio to debug and monitor
+ila_1x5_8x1 u_ila_1x5_8x1 (
+	.clk(i_sys_clk), // input wire clk
 
+	.probe0(m_sccb_sio_clk), // input wire [0:0]  probe0  
+	.probe1(m_sccb_sio_out), // input wire [0:0]  probe1 
+	.probe2(m_sccb_sio_tri), // input wire [0:0]  probe2 
+	.probe3(m_sccb_sio_in ), // input wire [0:0]  probe3 
+	.probe4(r_shk_sccb_wready), // input wire [0:0]  probe4 
+	.probe5(r_shk_sccb_smiso )  // input wire [7:0]  probe5
+);
 
 
 
