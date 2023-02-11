@@ -24,8 +24,9 @@ module axu2cgb_top(
     input   i_port_clk_25M,
     
     output  o_port_sccb_sio_clk,
-    inout   io_port_sccb_sio_d 
-
+    inout   io_port_sccb_sio_d,
+    
+    output  o_port_ov7670_rst_n
     );
 
 //========================================================
@@ -103,19 +104,35 @@ sccb_interface#(
 );
 //========================================================
 //expand and plug-in part with version 
-
+reg [31:0] r_rst_delay_cnt;
+always@(posedge w_sys_clk)
+begin
+    if(!w_sys_rst_n) //system reset
+    begin
+        r_rst_delay_cnt <= 1'b0; //
+    end
+    else if(r_rst_delay_cnt[29]) //
+    begin
+        r_rst_delay_cnt <= r_rst_delay_cnt;  //
+    end
+    else 
+    begin
+        r_rst_delay_cnt <= r_rst_delay_cnt + 1'b1;
+    end
+end
+assign o_port_ov7670_rst_n = r_rst_delay_cnt[29];
 //========================================================
 //ila and vio to debug and monitor
 vio_0 u_vio_0 (
-  .clk(w_sys_clk),                // input wire clk
-  .probe_in0 (probe_in0),    // input wire [0 : 0] probe_in0
-  .probe_in1 (probe_in1),    // input wire [7 : 0] probe_in1
-  .probe_in2 (probe_in2),    // input wire [7 : 0] probe_in2
-  .probe_in3 (probe_in3),    // input wire [7 : 0] probe_in3
-  .probe_out0(probe_out0),  // output wire [0 : 0] probe_out0
-  .probe_out1(probe_out1),  // output wire [7 : 0] probe_out1
-  .probe_out2(probe_out2),  // output wire [7 : 0] probe_out2
-  .probe_out3(probe_out3)  // output wire [7 : 0] probe_out3
+  .clk       ( w_sys_clk       ),                // input wire clk
+  .probe_in0 ( SHK_sccb_wvalid ),    // input wire [0 : 0] probe_in0
+  .probe_in1 ( SHK_sccb_saddr  ),    // input wire [7 : 0] probe_in1
+  .probe_in2 ( SHK_sccb_smosi  ),    // input wire [7 : 0] probe_in2
+  .probe_in3 ( SHK_sccb_dmosi  ),    // input wire [7 : 0] probe_in3
+  .probe_out0( SHK_sccb_wvalid ),  // output wire [0 : 0] probe_out0
+  .probe_out1( SHK_sccb_saddr  ),  // output wire [7 : 0] probe_out1
+  .probe_out2( SHK_sccb_smosi  ),  // output wire [7 : 0] probe_out2
+  .probe_out3( SHK_sccb_dmosi  )  // output wire [7 : 0] probe_out3
 );
 
 endmodule
