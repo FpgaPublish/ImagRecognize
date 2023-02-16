@@ -57,10 +57,10 @@ module sccb_interface #(
 
 //========================================================
 //localparam to converation and calculate
-localparam NB_CLK_PER  = 2500 / NB_SYS_CLK; //ns,clock period
-localparam NB_CLK_LOW  = 1250 / NB_SYS_CLK; //ns,clock low
-localparam NB_LOW_HALF =  625 / NB_SYS_CLK; //ns,clock low half to change data
-localparam NB_HGH_HALF = 1725 / NB_SYS_CLK; //ns,clock high to read data
+localparam NB_CLK_PER  = 5000 / NB_SYS_CLK; //ns,clock period
+localparam NB_CLK_LOW  = 2500 / NB_SYS_CLK; //ns,clock low
+localparam NB_LOW_HALF = 1250 / NB_SYS_CLK; //ns,clock low half to change data
+localparam NB_HGH_HALF = 3250 / NB_SYS_CLK; //ns,clock high to read data
 localparam NB_PHASE_CLK = 9;
 
 //========================================================
@@ -75,21 +75,30 @@ reg [19:0] r_clock_cnt;
 
 reg                   r_shk_sccb_wready;
 reg [WD_SHK_SYNC-1:0] r_shk_sccb_smiso ;
+
+wire w_write_flg = ~s_shk_sccb_saddr[0];
+//delay
+reg [31:0] r_over_delay_cnt;
+reg [19:0]  r_span21_delay_cnt;
+//read
+reg        r_read_addr_flg;
 //========================================================
 //always and assign to drive l ogic and connect
+wire w_phase_jump_flg = r_timing_cnt == NB_CLK_PER - 1'b1 
+                    &&  r_clock_cnt  == NB_PHASE_CLK - 1'b1;
+                
 //>>>>state machine<<<<//
 //state name
 localparam IDLE   =  0;
 localparam START  =  1;
 localparam PHASE1 =  2;
 localparam PHASE2 =  3;
+localparam SPAN21 =  6;
 localparam PHASE3 =  4;
 localparam OVER   =  5;
 //state variable
 reg [3:0] cstate = IDLE;
 
-wire w_phase_jump_flg = r_timing_cnt == NB_CLK_PER - 1'b1 
-                    &&  r_clock_cnt  == NB_PHASE_CLK - 1'b1;
 //state logic
 always @(posedge i_sys_clk)
     if(!i_sys_rst_n)
@@ -122,13 +131,24 @@ always @(posedge i_sys_clk)
                 end
             PHASE2: if(w_phase_jump_flg)
                 begin
-                    if(s_shk_sccb_saddr[0])
+                    if(w_write_flg)
                     begin
                         cstate <= PHASE3;
                     end
-                    else 
+                    else if(!r_read_addr_flg)
+                    begin
+                        cstate <= SPAN21;
+                    end
+                    else
                     begin
                         cstate <= OVER;
+                    end
+                end
+            SPAN21: if(r_span21_delay_cnt[11])
+                begin
+                    if(1)
+                    begin
+                        cstate <= PHASE1;
                     end
                 end
             PHASE3: if(w_phase_jump_flg)
@@ -138,7 +158,7 @@ always @(posedge i_sys_clk)
                         cstate <= OVER;
                     end
                 end
-            OVER: 
+            OVER: if(r_over_delay_cnt[10])
                 begin
                     if(1)
                     begin
@@ -214,21 +234,98 @@ begin
             r_sccb_sio_clk <= 1'b1;
         end
     end
+    else if(cstate == SPAN21)
+    begin
+        if(r_span21_delay_cnt == NB_LOW_HALF)
+        begin
+            r_sccb_sio_clk <= 1'b0;
+        end
+        else if(r_span21_delay_cnt == NB_CLK_LOW)
+        begin
+            r_sccb_sio_clk <= 1'b1;
+        end
+    end
+    else if(cstate == OVER) 
+    begin
+        if(r_over_delay_cnt == NB_LOW_HALF)
+        begin
+            r_sccb_sio_clk <= 1'b0;
+        end
+        else if(r_over_delay_cnt == NB_CLK_LOW)
+        begin
+            r_sccb_sio_clk <= 1'b1;
+        end
+        
+    end
 end
 assign m_sccb_sio_clk = r_sccb_sio_clk;
-//data out
+// ----------------------------------------------------------
+// read mode change\
 always@(posedge i_sys_clk)
 begin
     if(cstate == IDLE) //state IDLE reset
     begin
-        r_sccb_sio_out <= 1'b01;
+        r_read_addr_flg <= 1'b0;
+    end
+    else if(cstate == PHASE2 && w_phase_jump_flg)
+    begin
+        r_read_addr_flg <= 1'b1;
+    end
+end
+always@(posedge i_sys_clk)
+begin
+    if(cstate == IDLE) //state IDLE reset
+    begin
+        r_span21_delay_cnt <= 1'b0;
+    end
+    else if(cstate == SPAN21) 
+    begin
+        r_span21_delay_cnt <= r_span21_delay_cnt + 1'b1;
+    end
+end
+//data out
+wire [7:0] w_shk_sccb_saddr_s1 = s_shk_sccb_saddr - 1'b1;
+always@(posedge i_sys_clk)
+begin
+    if(cstate == IDLE) //state IDLE reset
+    begin
+        r_sccb_sio_out <= 1'b1;
         r_sccb_sio_tri <= 1'b1;
     end
     else if(cstate == PHASE1 && r_timing_cnt == NB_LOW_HALF - 1'b1)
     begin
+        if(!r_read_addr_flg)
+        begin
+            if(r_clock_cnt < NB_PHASE_CLK - 1)
+            begin
+                r_sccb_sio_out <= s_shk_sccb_saddr[NB_PHASE_CLK - 2 - r_clock_cnt];
+                r_sccb_sio_tri <= 1'b1;
+            end
+            else 
+            begin
+                r_sccb_sio_out <= 1'b1;
+                r_sccb_sio_tri <= 1'b0;
+            end
+        end
+        else 
+        begin
+            if(r_clock_cnt < NB_PHASE_CLK - 1)
+            begin
+                r_sccb_sio_out <= w_shk_sccb_saddr_s1[NB_PHASE_CLK - 2 - r_clock_cnt];
+                r_sccb_sio_tri <= 1'b1;
+            end
+            else 
+            begin
+                r_sccb_sio_out <= 1'b1;
+                r_sccb_sio_tri <= 1'b0;
+            end
+        end
+    end
+    else if(cstate == PHASE2 && w_write_flg && r_timing_cnt == NB_LOW_HALF - 1'b1)
+    begin
         if(r_clock_cnt < NB_PHASE_CLK - 1)
         begin
-            r_sccb_sio_out <= s_shk_sccb_saddr[NB_PHASE_CLK - 2 - r_clock_cnt];
+            r_sccb_sio_out <= s_shk_sccb_smosi[NB_PHASE_CLK - 2 - r_clock_cnt];
             r_sccb_sio_tri <= 1'b1;
         end
         else 
@@ -237,23 +334,44 @@ begin
             r_sccb_sio_tri <= 1'b0;
         end
     end
-    else if(cstate == PHASE2 && s_shk_sccb_saddr[0] && r_timing_cnt == NB_LOW_HALF - 1'b1)
+    else if(cstate == PHASE2 && !w_write_flg && r_timing_cnt == NB_LOW_HALF - 1'b1)
     begin
-        if(r_clock_cnt < NB_PHASE_CLK - 1)
-                begin
-                    r_sccb_sio_out <= s_shk_sccb_smosi[NB_PHASE_CLK - 2 - r_clock_cnt];
-                    r_sccb_sio_tri <= 1'b1;
-                end
-                else 
-                begin
-                    r_sccb_sio_out <= 1'b1;
-                    r_sccb_sio_tri <= 1'b0;
-                end
+        if(!r_read_addr_flg)
+        begin
+            if(r_clock_cnt < NB_PHASE_CLK - 1)
+            begin
+                r_sccb_sio_out <= s_shk_sccb_smosi[NB_PHASE_CLK - 2 - r_clock_cnt];
+                r_sccb_sio_tri <= 1'b1;
+            end
+            else 
+            begin
+                r_sccb_sio_out <= 1'b1;
+                r_sccb_sio_tri <= 1'b0;
+            end
+        end
+        else 
+        begin
+            if(r_clock_cnt < NB_PHASE_CLK - 1)
+            begin
+                r_sccb_sio_out <= 1'b1;
+                r_sccb_sio_tri <= 1'b0;
+            end
+            else 
+            begin
+                r_sccb_sio_out <= 1'b1;
+                r_sccb_sio_tri <= 1'b1;
+            end
+        end
+        
     end
-    else if(cstate == PHASE2 && !s_shk_sccb_saddr[0] && r_timing_cnt == NB_LOW_HALF - 1'b1)
+    else if(cstate == SPAN21)
     begin
-        r_sccb_sio_out <= 1'b0;
-        r_sccb_sio_tri <= 1'b0;
+        if(r_span21_delay_cnt == NB_LOW_HALF)
+        begin
+            r_sccb_sio_out <= 1'b1;
+            r_sccb_sio_tri <= 1'b1;
+        end
+        
     end
     else if(cstate == PHASE3 && r_timing_cnt == NB_LOW_HALF - 1'b1)
     begin
@@ -268,6 +386,14 @@ begin
                     r_sccb_sio_tri <= 1'b0;
                 end
     end
+    else if(cstate == OVER)
+    begin
+        if(r_over_delay_cnt == NB_LOW_HALF)
+        begin
+            r_sccb_sio_out <= 1'b1;
+            r_sccb_sio_tri <= 1'b1;
+        end
+    end
 end
 assign m_sccb_sio_out = r_sccb_sio_out;
 assign m_sccb_sio_tri = r_sccb_sio_tri;
@@ -277,9 +403,9 @@ begin
     begin
         r_shk_sccb_smiso <= 1'b0;
     end
-    else if(cstate == PHASE2 && !s_shk_sccb_saddr[0])
+    else if(cstate == PHASE2 && !w_write_flg && r_read_addr_flg)
     begin
-        if(r_timing_cnt == NB_HGH_HALF - 1'b1)
+        if(r_timing_cnt == NB_HGH_HALF - 1'b1 && r_clock_cnt < NB_PHASE_CLK - 1)
         begin
             r_shk_sccb_smiso <= {r_shk_sccb_smiso[WD_SHK_SYNC-2:0],m_sccb_sio_in};
         end
@@ -300,6 +426,20 @@ begin
     end
 end
 assign s_shk_sccb_wready = r_shk_sccb_wready;
+// ----------------------------------------------------------
+// over delay
+always@(posedge i_sys_clk)
+begin
+    if(cstate == IDLE) //state IDLE reset
+    begin
+        r_over_delay_cnt <= 1'b0;
+    end
+    else if(cstate == OVER) 
+    begin
+        r_over_delay_cnt <= r_over_delay_cnt + 1'b1;
+    end
+end
+
 //========================================================
 //module and task to build part of system
 
@@ -308,16 +448,7 @@ assign s_shk_sccb_wready = r_shk_sccb_wready;
 
 //========================================================
 //ila and vio to debug and monitor
-ila_1x5_8x1 u_ila_1x5_8x1 (
-	.clk(i_sys_clk), // input wire clk
 
-	.probe0(m_sccb_sio_clk), // input wire [0:0]  probe0  
-	.probe1(m_sccb_sio_out), // input wire [0:0]  probe1 
-	.probe2(m_sccb_sio_tri), // input wire [0:0]  probe2 
-	.probe3(m_sccb_sio_in ), // input wire [0:0]  probe3 
-	.probe4(r_shk_sccb_wready), // input wire [0:0]  probe4 
-	.probe5(r_shk_sccb_smiso )  // input wire [7:0]  probe5
-);
 
 
 
